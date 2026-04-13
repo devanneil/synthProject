@@ -1,0 +1,13 @@
+DEVAN:
+    Keyboard configuration file
+    Key to tone structure
+    Tone list
+    Tone list to generator
+
+NICK:
+    I need you to define what effects we want. I also want you to
+    define what our wave form should look like in code. I can give you
+    either a sample set or I can give you an enum of sin, triangle, saw, square or
+    I can give you an array of samples. Either way we'll end up sampling for the 
+    tone generator.
+    I also need you to run the script as it stands on your system. See readme.md
