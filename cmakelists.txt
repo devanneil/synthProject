@@ -1,0 +1,20 @@
+cmake_minimum_required(VERSION 3.10) # Set minimum version for modern features
+project(MainProject VERSION 1.0 LANGUAGES CXX)
+
+# Set the C++ standard
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Create the executable target
+add_executable(synthesizer 
+    main.cpp 
+    inputHandler.hpp 
+    toneGenerator.hpp 
+    waveArithmetic.hpp
+)
+
+add_subdirectory(miniaudio)
+
+target_link_libraries(synthesizer PRIVATE 
+    miniaudio
+)

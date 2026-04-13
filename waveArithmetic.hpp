@@ -1,0 +1,4 @@
+#ifndef WAVE_ARITHMETIC
+#define WAVE_ARITHMETIC
+
+#endif
