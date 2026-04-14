@@ -5,6 +5,7 @@
 #include <miniaudio.h>
 #include <stdio.h>
 #include <math.h>
+#include "enum.hpp"
 
 // Callback function to fill the audio buffer
 void data_callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount) {

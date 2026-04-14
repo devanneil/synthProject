@@ -11,6 +11,7 @@ add_executable(synthesizer
     inputHandler.hpp 
     toneGenerator.hpp 
     waveArithmetic.hpp
+    enum.hpp
 )
 add_subdirectory(miniaudio)
 
