@@ -3,13 +3,78 @@
 #define SDL_MAIN_USE_CALLBACKS 1  /* use the callbacks instead of main() */
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <sstream>
+#include <vector>
 #include "enum.hpp"
 static SDL_Window *window = NULL;
 static SDL_Renderer *renderer = NULL;
 
+struct keybind {
+    std::string key;
+    SDL_Scancode scancode;
+    char letter;
+    float frequency;
+};
+keybind keybinds[128];
+int keybindLength = 0;
+note activeNotes[128];
+int activeNoteCount = 0;
+waveform currentWaveForm = SINE;
 /* This function runs once at startup. */
 SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
-{
+{   
+    // Read in config file
+    std::ifstream file("keyboard.conf");
+
+    if (!file.is_open()) {
+        std::cerr << "Could not open the file!" << std::endl;
+        return SDL_APP_FAILURE;
+    }
+
+    // Read file line by line and fill keybinds array
+    int ind = 0;
+    std::string line;
+    // Ignore first line
+    std::getline(file, line);
+    while (std::getline(file, line)) {
+        std::istringstream tokenizer(line);
+        std::string conf[3];
+
+        std::getline(tokenizer, conf[0], ' '); // Key
+        std::getline(tokenizer, conf[1], ' '); // Letter
+        std::getline(tokenizer, conf[2]); // Frequency
+
+        if(tokenizer) {
+            try {
+                keybinds[ind].key = conf[0];
+                keybinds[ind].letter = conf[1][0];
+                keybinds[ind].frequency = std::stof(conf[2]);
+
+                keybinds[ind].scancode =
+                    SDL_GetScancodeFromName(conf[1].c_str());
+                if (keybinds[ind].scancode == SDL_SCANCODE_UNKNOWN) {
+                    std::cerr << "Invalid key name: "
+                            << keybinds[ind].key << std::endl;
+                    return SDL_APP_FAILURE;
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "Invalid keyboard configuration file!" << std::endl;
+                std::cerr << e.what() << std::endl;
+                std::cerr << "At: " << conf[2] << std::endl;
+                file.close();
+                return SDL_APP_FAILURE;
+                break;
+            }
+        } else {
+            std::cerr << "Keyboard configuration file error at: " << ind << std::endl;
+        }
+        ind++;
+    }
+    keybindLength = ind;
+    file.close();
     /* Create the window */
     if (!SDL_CreateWindowAndRenderer("Hello World", 800, 600, SDL_WINDOW_FULLSCREEN, &window, &renderer)) {
         SDL_Log("Couldn't create window and renderer: %s", SDL_GetError());
@@ -39,54 +104,61 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event)
 /* This function runs once per frame, and is the heart of the program. */
 SDL_AppResult SDL_AppIterate(void *appstate)
 {   
-    /* Get current keyboard state (IMPORTANT: enables multi-key detection) */
-    const bool *keys = (const bool *)SDL_GetKeyboardState(NULL);
-
-    bool wKey = keys[SDL_SCANCODE_W];
-    bool aKey = keys[SDL_SCANCODE_A];
-    bool sKey = keys[SDL_SCANCODE_S];
-    bool dKey = keys[SDL_SCANCODE_D];
-    bool space = keys[SDL_SCANCODE_SPACE];
-
     /* Clear screen */
     SDL_SetRenderDrawColor(renderer, 20, 20, 20, 255);
     SDL_RenderClear(renderer);
 
-    /* Title */
-    SDL_RenderDebugText(renderer, 20, 20, "SDL3 Multi-Key Input Demo");
-
-    /* Instructions */
-    SDL_RenderDebugText(renderer, 20, 60, "Hold keys to see state:");
-
-    SDL_RenderDebugText(renderer, 20, 100, "W - Forward");
-    SDL_RenderDebugText(renderer, 20, 120, "A - Left");
-    SDL_RenderDebugText(renderer, 20, 140, "S - Back");
-    SDL_RenderDebugText(renderer, 20, 160, "D - Right");
-    SDL_RenderDebugText(renderer, 20, 180, "SPACE - Jump");
-
-     /* Live state display */
-    char buffer[128];
-    SDL_snprintf(buffer, sizeof(buffer),
-                 "STATE -> W:%d A:%d S:%d D:%d SPACE:%d",
-                 wKey, aKey, sKey, dKey, space);
-
-
-    const char *message = buffer;
     int w = 0, h = 0;
     float x, y;
     const float scale = 4.0f;
 
-    /* Center the message and scale it up */
     SDL_GetRenderOutputSize(renderer, &w, &h);
     SDL_SetRenderScale(renderer, scale, scale);
-    x = ((w / scale) - SDL_DEBUG_TEXT_FONT_CHARACTER_SIZE * SDL_strlen(message)) / 2;
-    y = ((h / scale) - SDL_DEBUG_TEXT_FONT_CHARACTER_SIZE) / 2;
 
-    /* Draw the message */
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-    SDL_RenderClear(renderer);
+    /* Starting position */
+    x = 10;
+    y = 10;
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-    SDL_RenderDebugText(renderer, x, y, message);
+    SDL_RenderDebugText(renderer, x, y, "These are the configured keys: ");
+    y+= 10;
+    for (int i = 0; i < keybindLength; i++) {
+
+        char line[64];
+
+        snprintf(
+            line,
+            sizeof(line),
+            "%s %c %.2f",
+            keybinds[i].key.c_str(),
+            keybinds[i].letter,
+            keybinds[i].frequency
+        );
+
+        SDL_RenderDebugText(renderer, x, y, line);
+
+        /* Move down one line */
+        y += SDL_DEBUG_TEXT_FONT_CHARACTER_SIZE + 2;
+    }
+    const bool *keys =
+    (const bool *)SDL_GetKeyboardState(NULL);
+
+    int yOffset = 10;
+    activeNoteCount = 0;
+    for (int i = 0; i < keybindLength; i++) {
+        std::string activeLetters;
+        if (keys[keybinds[i].scancode]) {
+            activeNotes[activeNoteCount].frequency = keybinds[i].frequency;
+            activeNotes[activeNoteCount].gain = 1;
+            activeNotes[activeNoteCount].key = keybinds[i].key;
+            activeNotes[activeNoteCount].wave = currentWaveForm;
+            activeNoteCount++;
+
+            activeLetters += keybinds[i].key;
+            activeLetters += ' ';
+            SDL_RenderDebugText(renderer, 280, yOffset, activeLetters.c_str());
+            yOffset += 10;
+        }
+    }
     SDL_RenderPresent(renderer);
 
     return SDL_APP_CONTINUE;

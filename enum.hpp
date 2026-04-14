@@ -1,5 +1,6 @@
 #ifndef ENUM_HPP
 #define ENUM_HPP
+#include <string>
 enum waveform {
     SINE,
     SAW,
@@ -7,7 +8,7 @@ enum waveform {
     TRIANGLE
 };
 struct note {
-    char key;
+    std::string key;
     float frequency;
     float gain = 1.0;
     waveform wave;
