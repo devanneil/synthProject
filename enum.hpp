@@ -7,6 +7,14 @@ enum waveform {
     SQUARE,
     TRIANGLE
 };
+
+enum effect {
+    NONE,
+    VOLUME,
+    DISTORTION,
+    TREMOLO,
+    LOW_PASS
+};
 struct note {
     std::string key;
     float frequency;
