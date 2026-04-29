@@ -27,8 +27,15 @@ struct keybind {
     char letter;
     float frequency;
 };
+struct waveKey {
+    std::string key;
+    SDL_Scancode scancode;
+    waveform wave;
+};
 keybind keybinds[128];
+waveKey wavebinds[8];
 int keybindLength = 0;
+int waveKeyLength = 0;
 note activeNotes[128];
 int activeNoteCount = 0;
 waveform currentWaveForm = SINE;
@@ -43,46 +50,110 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
         return SDL_APP_FAILURE;
     }
 
-    // Read file line by line and fill keybinds array
     int ind = 0;
+    int waveInd = 0;
     std::string line;
-    // Ignore first line
-    std::getline(file, line);
+
     while (std::getline(file, line)) {
+
+        // Skip blank or comment lines
+        if (line.empty() || line[0] == '#')
+            continue;
+
         std::istringstream tokenizer(line);
-        std::string conf[3];
 
-        std::getline(tokenizer, conf[0], ' '); // Key
-        std::getline(tokenizer, conf[1], ' '); // Letter
-        std::getline(tokenizer, conf[2]); // Frequency
+        std::vector<std::string> tokens;
+        std::string tok;
 
-        if(tokenizer) {
-            try {
-                keybinds[ind].key = conf[0];
-                keybinds[ind].letter = conf[1][0];
-                keybinds[ind].frequency = std::stof(conf[2]);
+        // Tokenize safely
+        while (tokenizer >> tok) {
+            tokens.push_back(tok);
+        }
 
-                keybinds[ind].scancode =
-                    SDL_GetScancodeFromName(conf[1].c_str());
-                if (keybinds[ind].scancode == SDL_SCANCODE_UNKNOWN) {
-                    std::cerr << "Invalid key name: "
-                            << keybinds[ind].key << std::endl;
+        try {
+
+            // ---------- WAVE BINDS ----------
+            // Format: KEY WAVE
+            if (tokens.size() == 2) {
+
+                const std::string& key  = tokens[0];
+                const std::string& wave = tokens[1];
+
+                wavebinds[waveInd].key = key;
+                wavebinds[waveInd].scancode =
+                    SDL_GetScancodeFromName(key.c_str());
+
+                if (wave == "SINE")
+                    wavebinds[waveInd].wave = SINE;
+                else if (wave == "SAW")
+                    wavebinds[waveInd].wave = SAW;
+                else if (wave == "SQUARE")
+                    wavebinds[waveInd].wave = SQUARE;
+                else if (wave == "TRIANGLE")
+                    wavebinds[waveInd].wave = TRIANGLE;
+                else {
+                    std::cerr << "Unknown wave type: "
+                            << wave << std::endl;
                     return SDL_APP_FAILURE;
                 }
-            } catch (const std::exception& e) {
-                std::cerr << "Invalid keyboard configuration file!" << std::endl;
-                std::cerr << e.what() << std::endl;
-                std::cerr << "At: " << conf[2] << std::endl;
-                file.close();
-                return SDL_APP_FAILURE;
-                break;
+
+                waveInd++;
             }
-        } else {
-            std::cerr << "Keyboard configuration file error at: " << ind << std::endl;
+
+            // ---------- KEY BINDS ----------
+            // Format: KEY LETTER FREQUENCY
+            else if (tokens.size() == 3) {
+
+                const std::string& letterStr = tokens[0];
+                const std::string& key       = tokens[1];
+                const std::string& freqStr   = tokens[2];
+
+                keybinds[ind].key = key;
+                keybinds[ind].letter = letterStr[0];
+                keybinds[ind].frequency = std::stof(freqStr);
+
+                keybinds[ind].scancode =
+                    SDL_GetScancodeFromName(key.c_str());
+
+                if (keybinds[ind].scancode ==
+                    SDL_SCANCODE_UNKNOWN) {
+
+                    std::cerr << "Invalid key name: "
+                            << key << std::endl;
+
+                    return SDL_APP_FAILURE;
+                }
+
+                ind++;
+            }
+
+            // ---------- INVALID LINE ----------
+            else {
+
+                std::cerr
+                    << "Invalid config line format:\n"
+                    << line << std::endl;
+
+                return SDL_APP_FAILURE;
+            }
+
         }
-        ind++;
+        catch (const std::exception& e) {
+
+            std::cerr
+                << "Invalid keyboard configuration file!"
+                << std::endl;
+
+            std::cerr << e.what() << std::endl;
+            std::cerr << "Line: " << line << std::endl;
+
+            file.close();
+            return SDL_APP_FAILURE;
+        }
     }
+
     keybindLength = ind;
+    waveKeyLength = waveInd;
     file.close();
     initializeAudio();
     /* Create the window */
@@ -149,6 +220,41 @@ SDL_AppResult SDL_AppIterate(void *appstate)
         /* Move down one line */
         y += SDL_DEBUG_TEXT_FONT_CHARACTER_SIZE + 2;
     }
+    for (int i = 0; i < waveKeyLength; i++) {
+        char line[64];
+        std::string currentWave;
+        switch (wavebinds[i].wave)
+        {
+        case SINE:
+            currentWave = "SINE";
+            break;
+        case SAW:
+            currentWave = "SAW";
+            break;
+        case SQUARE:
+            currentWave = "SQUARE";
+            break;
+        case TRIANGLE:
+            currentWave = "TRIANGLE";
+            break;
+        default:
+            currentWave = "UNCONFIGURED";
+            break;
+        }
+
+        snprintf(
+            line,
+            sizeof(line),
+            "%s %s",
+            wavebinds[i].key.c_str(),
+            currentWave.c_str()
+        );
+
+        SDL_RenderDebugText(renderer, x, y, line);
+
+        /* Move down one line */
+        y += SDL_DEBUG_TEXT_FONT_CHARACTER_SIZE + 2;
+    }
     const bool *keys =
     (const bool *)SDL_GetKeyboardState(NULL);
 
@@ -170,6 +276,31 @@ SDL_AppResult SDL_AppIterate(void *appstate)
             SDL_RenderDebugText(renderer, 280, yOffset, activeLetters.c_str());
             yOffset += 10;
         }
+    }
+    for (int i = 0; i < waveKeyLength; i++) {
+        if (keys[wavebinds[i].scancode]) {
+            currentWaveForm = wavebinds[i].wave;
+        }
+        std::string currentWave;
+        switch (currentWaveForm)
+        {
+        case SINE:
+            currentWave = "SINE";
+            break;
+        case SAW:
+            currentWave = "SAW";
+            break;
+        case SQUARE:
+            currentWave = "SQUARE";
+            break;
+        case TRIANGLE:
+            currentWave = "TRIANGLE";
+            break;
+        default:
+            currentWave = "UNCONFIGURED";
+            break;
+        }
+        SDL_RenderDebugText(renderer, 280, yOffset, currentWave.c_str());
     }
     SDL_RenderPresent(renderer);
 
