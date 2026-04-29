@@ -7,9 +7,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Create the executable target
 add_executable(synthesizer 
-    main.cpp 
+    main.cpp
     inputHandler.hpp 
-    toneGenerator.hpp 
     waveArithmetic.hpp
     enum.hpp
 )

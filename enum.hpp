@@ -20,5 +20,6 @@ struct note {
     float frequency;
     float gain = 1.0;
     waveform wave;
+    float phase = 0.0;
 };
 #endif

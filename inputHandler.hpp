@@ -8,7 +8,16 @@
 #include <string>
 #include <sstream>
 #include <vector>
+#include <mutex>
 #include "enum.hpp"
+#include "waveArithmetic.hpp"
+#include <miniaudio.h>
+#include <stdio.h>
+#include <math.h>
+
+std::mutex audioMutex;
+void initializeAudio();
+
 static SDL_Window *window = NULL;
 static SDL_Renderer *renderer = NULL;
 
@@ -75,6 +84,7 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
     }
     keybindLength = ind;
     file.close();
+    initializeAudio();
     /* Create the window */
     if (!SDL_CreateWindowAndRenderer("Hello World", 800, 600, SDL_WINDOW_FULLSCREEN, &window, &renderer)) {
         SDL_Log("Couldn't create window and renderer: %s", SDL_GetError());
@@ -147,11 +157,13 @@ SDL_AppResult SDL_AppIterate(void *appstate)
     for (int i = 0; i < keybindLength; i++) {
         std::string activeLetters;
         if (keys[keybinds[i].scancode]) {
+            audioMutex.lock();
             activeNotes[activeNoteCount].frequency = keybinds[i].frequency;
             activeNotes[activeNoteCount].gain = 1;
             activeNotes[activeNoteCount].key = keybinds[i].key;
             activeNotes[activeNoteCount].wave = currentWaveForm;
             activeNoteCount++;
+            audioMutex.unlock();
 
             activeLetters += keybinds[i].key;
             activeLetters += ' ';
@@ -167,5 +179,66 @@ SDL_AppResult SDL_AppIterate(void *appstate)
 /* This function runs once at shutdown. */
 void SDL_AppQuit(void *appstate, SDL_AppResult result)
 {
+}
+
+
+#define SAMPLE_RATE 48000
+
+ma_device device;
+bool audioInitialized = false;
+
+void data_callback(
+    ma_device* device,
+    void* output,
+    const void* input,
+    ma_uint32 frameCount)
+{
+    float* out = (float*)output;
+    std::lock_guard<std::mutex> lock(audioMutex);
+
+    for (ma_uint32 i = 0; i < frameCount; i++) {
+
+        float sample = 0.0f;
+        for (int n = 0; n < activeNoteCount; n++) {
+            sample += generateWaveSample(activeNotes[n].wave, 
+                activeNotes[n].phase);
+            activeNotes[n].phase += activeNotes[n].frequency / SAMPLE_RATE;
+        }
+        out[i] = sample * 0.2f;
+    }
+}
+
+void initializeAudio() {
+    if (audioInitialized)
+        return;
+
+    ma_device_config config;
+
+    config = ma_device_config_init(
+        ma_device_type_playback);
+
+    config.playback.format   = ma_format_f32;
+    config.playback.channels = 1;
+    config.sampleRate        = SAMPLE_RATE;
+    config.dataCallback      = data_callback;
+
+    if (ma_device_init(
+            NULL,
+            &config,
+            &device) != MA_SUCCESS)
+    {
+        printf("Failed to open audio device.\n");
+        return;
+    }
+
+    if (ma_device_start(&device)
+            != MA_SUCCESS)
+    {
+        printf("Failed to start playback.\n");
+        ma_device_uninit(&device);
+        return;
+    }
+
+    audioInitialized = true;
 }
 #endif
