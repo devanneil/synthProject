@@ -259,28 +259,52 @@ SDL_AppResult SDL_AppIterate(void *appstate)
     (const bool *)SDL_GetKeyboardState(NULL);
 
     int yOffset = 10;
-    activeNoteCount = 0;
-    for (int i = 0; i < keybindLength; i++) {
-        std::string activeLetters;
-        if (keys[keybinds[i].scancode]) {
-            audioMutex.lock();
-            activeNotes[activeNoteCount].frequency = keybinds[i].frequency;
-            activeNotes[activeNoteCount].gain = 1;
-            activeNotes[activeNoteCount].key = keybinds[i].key;
-            activeNotes[activeNoteCount].wave = currentWaveForm;
-            activeNoteCount++;
-            audioMutex.unlock();
-
-            activeLetters += keybinds[i].key;
-            activeLetters += ' ';
-            SDL_RenderDebugText(renderer, 280, yOffset, activeLetters.c_str());
-            yOffset += 10;
-        }
-    }
     for (int i = 0; i < waveKeyLength; i++) {
         if (keys[wavebinds[i].scancode]) {
             currentWaveForm = wavebinds[i].wave;
         }
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(audioMutex);
+        for (int i = 0; i < activeNoteCount; i++) {
+            activeNotes[i].releasing = true;
+        }
+
+        for (int i = 0; i < keybindLength; i++) {
+            std::string activeLetters;
+            if (keys[keybinds[i].scancode]) {
+                int noteIndex = -1;
+                for (int n = 0; n < activeNoteCount; n++) {
+                    if (activeNotes[n].key == keybinds[i].key) {
+                        noteIndex = n;
+                        break;
+                    }
+                }
+
+                if (noteIndex == -1 && activeNoteCount < 128) {
+                    noteIndex = activeNoteCount;
+                    activeNotes[noteIndex].frequency = keybinds[i].frequency;
+                    activeNotes[noteIndex].gain = 1.0f;
+                    activeNotes[noteIndex].key = keybinds[i].key;
+                    activeNotes[noteIndex].wave = currentWaveForm;
+                    activeNotes[noteIndex].phase = 0.0f;
+                    activeNoteCount++;
+                }
+
+                if (noteIndex != -1) {
+                    activeNotes[noteIndex].frequency = keybinds[i].frequency;
+                    activeNotes[noteIndex].releasing = false;
+                }
+
+                activeLetters += keybinds[i].key;
+                activeLetters += ' ';
+                SDL_RenderDebugText(renderer, 280, yOffset, activeLetters.c_str());
+                yOffset += 10;
+            }
+        }
+    }
+    for (int i = 0; i < waveKeyLength; i++) {
         std::string currentWave;
         switch (currentWaveForm)
         {
@@ -314,6 +338,7 @@ void SDL_AppQuit(void *appstate, SDL_AppResult result)
 
 
 #define SAMPLE_RATE 48000
+#define RELEASE_SECONDS 0.01f
 
 ma_device device;
 bool audioInitialized = false;
@@ -332,11 +357,31 @@ void data_callback(
         float sample = 0.0f;
         for (int n = 0; n < activeNoteCount; n++) {
             sample += generateWaveSample(activeNotes[n].wave, 
-                activeNotes[n].phase);
-            activeNotes[n].phase += activeNotes[n].frequency / SAMPLE_RATE;
+                activeNotes[n].phase) * activeNotes[n].gain;
+            activeNotes[n].phase = wrapPhase(
+                activeNotes[n].phase + activeNotes[n].frequency / SAMPLE_RATE);
+            if (activeNotes[n].releasing) {
+                activeNotes[n].gain -= 1.0f / (RELEASE_SECONDS * SAMPLE_RATE);
+                if (activeNotes[n].gain < 0.0f) {
+                    activeNotes[n].gain = 0.0f;
+                }
+            } else {
+                activeNotes[n].gain = 1.0f;
+            }
         }
         out[i] = sample * 0.2f;
     }
+
+    int writeIndex = 0;
+    for (int readIndex = 0; readIndex < activeNoteCount; readIndex++) {
+        if (!activeNotes[readIndex].releasing || activeNotes[readIndex].gain > 0.0f) {
+            if (writeIndex != readIndex) {
+                activeNotes[writeIndex] = activeNotes[readIndex];
+            }
+            writeIndex++;
+        }
+    }
+    activeNoteCount = writeIndex;
 }
 
 void initializeAudio() {
